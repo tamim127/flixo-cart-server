@@ -1,15 +1,16 @@
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb"); // ObjectId এখানে import করা হলো
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000
+require("dotenv").config();
 
 app.use(cors());
 app.use(express.json());
 
 const uri =
-    "mongodb+srv://flixo-cart:zGtuHph7q48GUzDW@cluster0.vormdea.mongodb.net/flixoDB?retryWrites=true&w=majority";
+    `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.vormdea.mongodb.net/flixoDB?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, {
     serverApi: {
@@ -21,39 +22,47 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // 1. MongoDB Connect
-        await client.connect();
+        // await client.connect();
 
         const db = client.db("flixo-cart");
         const productsCollection = db.collection("products");
-      
-        //  Read Operations 
+
+        // ------------------------------------
+        //   Default Route
+        // ------------------------------------
         app.get('/', (req, res) => {
-            res.send("Server is running")
+            res.send("Server is running");
         });
 
+        // ------------------------------------
+        //   Pagination Products
+        // ------------------------------------
         app.get('/products', async (req, res) => {
-            const limit = parseInt(req.query.limit) || 24; 
-            const skip = parseInt(req.query.skip) || 0;    
+            const limit = parseInt(req.query.limit) || 24;
+            const skip = parseInt(req.query.skip) || 0;
+
             try {
                 const totalProducts = await productsCollection.countDocuments({});
-                const cursor = productsCollection.find({})
-                    .skip(skip)   
-                    .limit(limit); 
-                const result = await cursor.toArray();
+                const result = await productsCollection.find({})
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
                 res.send({
                     products: result,
                     total: totalProducts,
-                    limit: limit,
-                    skip: skip
+                    limit,
+                    skip
                 });
 
             } catch (error) {
-                console.error("Error fetching paginated products:", error);
                 res.status(500).send({ message: "Failed to fetch products" });
             }
         });
 
+        // ------------------------------------
+        //   Single Product
+        // ------------------------------------
         app.get('/products/:id', async (req, res) => {
             const id = req.params.id;
 
@@ -70,76 +79,185 @@ async function run() {
             res.send(product);
         });
 
-
-        // ------------------------------------------------------------------
-        // ---  CRUD Operations ---
-        // ------------------------------------------------------------------
-
-        // Add Product(C: Create)
-
+        // ------------------------------------
+        //   ADD Product
+        // ------------------------------------
         app.post('/products', async (req, res) => {
-           
             const newProduct = req.body;
+
             try {
                 const result = await productsCollection.insertOne(newProduct);
-                
                 res.status(201).send({ message: "Product added successfully", insertedId: result.insertedId });
             } catch (error) {
-                console.error(error);
                 res.status(500).send({ message: "Failed to add product" });
             }
         });
 
-        //  Update Product(U: Update)
-
+        // ------------------------------------
+        //   UPDATE Product
+        // ------------------------------------
         app.put('/products/:id', async (req, res) => {
             const id = req.params.id;
             const updatedData = req.body;
-            const filter = { _id: new ObjectId(id) };
-            const updateDoc = {
-                $set: updatedData,
-            };
 
             try {
-                const result = await productsCollection.updateOne(filter, updateDoc);
+                const result = await productsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: updatedData }
+                );
 
                 if (result.matchedCount === 0) {
                     return res.status(404).send({ message: "Product not found" });
                 }
-                res.send({ message: "Product updated successfully", modifiedCount: result.modifiedCount });
+
+                res.send({ message: "Product updated successfully" });
+
             } catch (error) {
-                console.error(error);
                 res.status(500).send({ message: "Failed to update product" });
             }
         });
 
-        //  Delete Product(D: Delete)
-
+        // ------------------------------------
+        //   DELETE Product
+        // ------------------------------------
         app.delete('/products/:id', async (req, res) => {
             const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
 
             try {
-                const result = await productsCollection.deleteOne(query);
+                const result = await productsCollection.deleteOne({ _id: new ObjectId(id) });
 
                 if (result.deletedCount === 1) {
-                    res.send({ message: "Product deleted successfully" });
-                } else {
-                    res.status(404).send({ message: "Product not found or already deleted" });
+                    return res.send({ message: "Product deleted successfully" });
                 }
+
+                res.status(404).send({ message: "Product not found" });
+
             } catch (error) {
-                console.error(error);
                 res.status(500).send({ message: "Failed to delete product" });
             }
         });
 
-   
+        // ====================================================================
+        // 🔥🔥🔥  EXTRA API BASED ON YOUR JSON STRUCTURE
+        // ====================================================================
 
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
-    } finally {
+        // ------------------------------------
+        //   1️⃣ Get All Categories (unique)
+        // ------------------------------------
+        app.get('/categories', async (req, res) => {
+            try {
+                const categories = await productsCollection.distinct("category");
+                res.send(categories);
+            } catch (e) {
+                res.status(500).send({ message: "Failed to load categories" });
+            }
+        });
 
-    }
+        // ------------------------------------
+        //   2️⃣ Get Products by Category
+        // ------------------------------------
+        app.get('/products/category/:name', async (req, res) => {
+            const category = req.params.name;
+            const limit = parseInt(req.query.limit) || 24;
+            const skip = parseInt(req.query.skip) || 0;
+
+            try {
+                const total = await productsCollection.countDocuments({ category });
+                const products = await productsCollection.find({ category })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    products,
+                    total,
+                    limit,
+                    skip
+                });
+
+            } catch (e) {
+                res.status(500).send({ message: "Failed to fetch category products" });
+            }
+        });
+
+        // ------------------------------------
+        //   3️⃣ Search Products (title, description, tags)
+        // ------------------------------------
+        app.get('/products/search', async (req, res) => {
+            const q = req.query.q;
+
+            const filter = {
+                $or: [
+                    { title: { $regex: q, $options: "i" } },
+                    { description: { $regex: q, $options: "i" } },
+                    { tags: { $regex: q, $options: "i" } }
+                ]
+            };
+
+            try {
+                const result = await productsCollection.find(filter).toArray();
+                res.send(result);
+            } catch (e) {
+                res.status(500).send({ message: "Search failed" });
+            }
+        });
+
+        // ------------------------------------
+        //   4️⃣ Price Range Filter
+        // ------------------------------------
+        app.get('/products/filter', async (req, res) => {
+            const min = parseFloat(req.query.minPrice) || 0;
+            const max = parseFloat(req.query.maxPrice) || 999999;
+
+            try {
+                const result = await productsCollection.find({
+                    price: { $gte: min, $lte: max }
+                }).toArray();
+
+                res.send(result);
+
+            } catch (e) {
+                res.status(500).send({ message: "Filtering failed" });
+            }
+        });
+
+        // ------------------------------------
+        //   5️⃣ Brand Filter
+        // ------------------------------------
+        app.get('/products/brand/:brand', async (req, res) => {
+            const brand = req.params.brand;
+
+            try {
+                const result = await productsCollection.find({ brand }).toArray();
+                res.send(result);
+            } catch (e) {
+                res.status(500).send({ message: "Brand filter failed" });
+            }
+        });
+
+        // ------------------------------------
+        //   6️⃣ Tag Filter
+        // ------------------------------------
+        app.get('/products/tags/:tag', async (req, res) => {
+            const tag = req.params.tag;
+
+            try {
+                const result = await productsCollection.find({
+                    tags: tag
+                }).toArray();
+
+                res.send(result);
+
+            } catch (e) {
+                res.status(500).send({ message: "Tag filter failed" });
+            }
+        });
+
+
+        // await client.db("admin").command({ ping: 1 });
+        console.log("Pinged your deployment, MongoDB Connected!");
+
+    } finally { }
 }
 
 run().catch(console.dir);
