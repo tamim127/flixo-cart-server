@@ -1,6 +1,4 @@
-// ------------------------------
-// server.js
-// ------------------------------
+
 
 const express = require("express");
 const cors = require("cors");
@@ -10,7 +8,7 @@ require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// ✅ Enable CORS for all origins
+//  Enable CORS for all origins
 app.use(cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -45,6 +43,7 @@ async function run() {
     try {
         const db = client.db("flixo-cart");
         const productsCollection = db.collection("products");
+        const cartsCollection = db.collection("carts");
 
         // -------------------------
         // Default Route
@@ -213,7 +212,7 @@ async function run() {
         });
 
 
-        
+
         // My Products - Seller 
         app.get("/my-products", async (req, res) => {
             try {
@@ -226,7 +225,7 @@ async function run() {
                 const limit = parseInt(req.query.limit) || 12;
                 const skip = (page - 1) * limit;
 
-                const query = { sellerId: sellerId }; 
+                const query = { sellerId: sellerId };
 
                 const total = await productsCollection.countDocuments(query);
                 const products = await productsCollection
@@ -263,6 +262,138 @@ async function run() {
                 res.status(500).send({ message: "Tag filter failed" });
             }
         });
+
+
+        //  Get Cart 
+        app.get("/cart", async (req, res) => {
+            const userId = req.query.userId;
+            if (!userId) return res.json({ items: [] });
+
+            try {
+                const cart = await cartsCollection.findOne({ userId });
+                res.json(cart || { items: [] });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ items: [] });
+            }
+        });
+
+        //  Add to Cart  Quantity incrise
+        app.post("/cart", async (req, res) => {
+            const { userId, product } = req.body;
+            if (!userId || !product?.productId) {
+                return res.status(400).json({ error: "Missing data" });
+            }
+
+            try {
+                const cart = await cartsCollection.findOne({ userId });
+
+                if (!cart) {
+
+                    await cartsCollection.insertOne({
+                        userId,
+                        items: [{ ...product, quantity: 1 }],
+                        updatedAt: new Date()
+                    });
+                } else {
+
+                    const existingItem = cart.items.find(item => item.productId === product.productId);
+
+                    if (existingItem) {
+
+                        await cartsCollection.updateOne(
+                            { userId, "items.productId": product.productId },
+                            { $inc: { "items.$.quantity": 1 }, $set: { updatedAt: new Date() } }
+                        );
+                    } else {
+
+                        await cartsCollection.updateOne(
+                            { userId },
+                            { $push: { items: { ...product, quantity: 1 } }, $set: { updatedAt: new Date() } }
+                        );
+                    }
+                }
+                res.json({ success: true });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ error: "Failed to add to cart" });
+            }
+        });
+
+        // Remove cart from DB 
+
+        app.delete("/cart/item", async (req, res) => {
+            const { userId, productId } = req.body; 
+
+            if (!userId || !productId) {
+                return res.status(400).json({ error: "Missing userId or productId" });
+            }
+
+            try {
+                const result = await cartsCollection.updateOne(
+                    { userId },
+                    {
+                        $pull: { items: { productId } },
+                        $set: { updatedAt: new Date() }
+                    }
+                );
+
+                if (result.modifiedCount === 0) {
+                    return res.status(404).json({ error: "Cart or item not found" });
+                }
+
+                res.json({ success: true });
+            } catch (err) {
+                console.error("Remove from cart error:", err);
+                res.status(500).json({ error: "Failed to remove item" });
+            }
+        });
+
+        app.delete("/cart/clear", async (req, res) => {
+            const { userId } = req.body;
+            if (!userId) return res.status(400).json({ error: "userId required" });
+
+            try {
+                await cartsCollection.updateOne(
+                    { userId },
+                    { $set: { items: [], updatedAt: new Date() } }
+                );
+                res.json({ success: true });
+            } catch (err) {
+                res.status(500).json({ error: "Failed to clear cart" });
+            }
+        });
+
+        //  Quantity decrise
+        app.patch("/cart/decrease", async (req, res) => {
+            const { userId, productId } = req.body;
+
+            try {
+                const cart = await cartsCollection.findOne({ userId });
+                const item = cart.items.find(i => i.productId === productId);
+
+                if (item && item.quantity > 1) {
+                    await cartsCollection.updateOne(
+                        { userId, "items.productId": productId },
+                        { $inc: { "items.$.quantity": -1 }, $set: { updatedAt: new Date() } }
+                    );
+                } else {
+
+                    await cartsCollection.updateOne(
+                        { userId },
+                        { $pull: { items: { productId } } }
+                    );
+                }
+                res.json({ success: true });
+            } catch (err) {
+                res.status(500).json({ error: "Failed" });
+            }
+        });
+
+
+
+
+
 
         console.log("MongoDB Connected!");
     } finally { }
