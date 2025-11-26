@@ -214,22 +214,38 @@ async function run() {
 
 
         
+        // My Products - Seller 
         app.get("/my-products", async (req, res) => {
             try {
                 const sellerId = req.query.sellerId;
-                if (!sellerId) return res.status(400).json({ error: "Seller ID required" });
+                if (!sellerId) {
+                    return res.status(400).json({ error: "Seller ID required" });
+                }
 
-                // এখানে তুমি MongoDB collection use করছ
-                const productsCollection = client.db("yourDB").collection("products");
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 12;
+                const skip = (page - 1) * limit;
 
+                const query = { sellerId: sellerId }; 
+
+                const total = await productsCollection.countDocuments(query);
                 const products = await productsCollection
-                    .find({ sellerId })  // filter by sellerId
-                    .sort({ "meta.createdAt": -1 }) // latest first
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
                     .toArray();
 
-                res.status(200).json(products);
+                res.status(200).json({
+                    products,
+                    total,
+                    page,
+                    limit,
+                    hasMore: products.length === limit
+                });
+
             } catch (err) {
-                console.error(err);
+                console.error("Error in /my-products:", err);
                 res.status(500).json({ error: "Failed to fetch your products" });
             }
         });
