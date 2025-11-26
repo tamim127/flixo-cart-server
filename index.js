@@ -212,6 +212,29 @@ async function run() {
             }
         });
 
+
+        
+        app.get("/my-products", async (req, res) => {
+            try {
+                const sellerId = req.query.sellerId;
+                if (!sellerId) return res.status(400).json({ error: "Seller ID required" });
+
+                // এখানে তুমি MongoDB collection use করছ
+                const productsCollection = client.db("yourDB").collection("products");
+
+                const products = await productsCollection
+                    .find({ sellerId })  // filter by sellerId
+                    .sort({ "meta.createdAt": -1 }) // latest first
+                    .toArray();
+
+                res.status(200).json(products);
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ error: "Failed to fetch your products" });
+            }
+        });
+
+
         // -------------------------
         // Tag Filter
         // -------------------------
