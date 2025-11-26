@@ -32,7 +32,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        
+
 
         const db = client.db("flixo-cart");
         const productsCollection = db.collection("products");
@@ -242,6 +242,58 @@ async function run() {
                 res.send(result);
             } catch (e) {
                 res.status(500).send({ message: "Brand filter failed" });
+            }
+        });
+
+
+
+
+
+        // user products
+
+
+        app.get('/my-products', async (req, res) => {
+            const sellerId = req.query.sellerId;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 12;
+            const skip = (page - 1) * limit;
+
+            try {
+                const query = sellerId ? { sellerId } : {};
+                const total = await productsCollection.countDocuments(query);
+                const products = await productsCollection
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send(products);
+            } catch (error) {
+                res.status(500).send({ message: "Failed" });
+            }
+        });
+
+        // ২. Add Product – sellerId + timestamp 
+        app.post('/products', async (req, res) => {
+            const product = req.body;
+
+            const newProduct = {
+                ...product,
+                sellerId: product.sellerId || null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            };
+
+            try {
+                const result = await productsCollection.insertOne(newProduct);
+                res.status(201).send({
+                    message: "Product added successfully",
+                    insertedId: result.insertedId
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to add product" });
             }
         });
 
